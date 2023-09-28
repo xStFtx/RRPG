@@ -1,27 +1,18 @@
 use std::io;
 use rand::Rng;
 
-struct Character {
-    name: String,
-    level: u32,
-    health: u32,
-    max_health: u32,
-    magic_points: u32,
-    max_magic_points: u32,
-    class: CharacterClass,
-    inventory: Vec<Item>,
-}
-
+#[derive(Clone, PartialEq)]
 enum CharacterClass {
     Warrior,
     Mage,
     Rogue,
 }
 
-struct Item {
-    name: String,
-    item_type: ItemType,
-    effect: ItemEffect,
+#[derive(Clone, PartialEq)]
+enum ItemRarity {
+    Common,
+    Rare,
+    Epic,
 }
 
 #[derive(Clone, PartialEq)]
@@ -38,17 +29,50 @@ enum ItemEffect {
     DamageIncrease(u32),
 }
 
+struct Item {
+    name: String,
+    rarity: ItemRarity,
+    item_type: ItemType,
+    effect: ItemEffect,
+}
 
-const WARRIOR_STATS: (u32, u32) = (120, 40);
-const MAGE_STATS: (u32, u32) = (80, 80);
-const ROGUE_STATS: (u32, u32) = (100, 60);
+struct Character {
+    name: String,
+    level: u32,
+    health: u32,
+    max_health: u32,
+    magic_points: u32,
+    max_magic_points: u32,
+    experience_points: u32,
+    experience_to_level_up: u32,
+    class: CharacterClass,
+    inventory: Vec<Item>,
+}
+
+struct QuestObjective {
+    description: String,
+    is_completed: bool,
+}
+
+struct Quest {
+    name: String,
+    objectives: Vec<QuestObjective>,
+    rewards: Vec<Item>,
+    completed: bool,
+}
+
+struct Enemy {
+    name: String,
+    health: u32,
+    damage: u32,
+}
 
 impl Character {
     fn new(name: &str, class: CharacterClass) -> Self {
         let (max_health, max_magic_points) = match class {
-            CharacterClass::Warrior => WARRIOR_STATS,
-            CharacterClass::Mage => MAGE_STATS,
-            CharacterClass::Rogue => ROGUE_STATS,
+            CharacterClass::Warrior => (120, 40),
+            CharacterClass::Mage => (80, 80),
+            CharacterClass::Rogue => (100, 60),
         };
 
         Character {
@@ -58,6 +82,8 @@ impl Character {
             max_health,
             magic_points: max_magic_points,
             max_magic_points,
+            experience_points: 0,
+            experience_to_level_up: 100, // Adjust as needed
             class,
             inventory: vec![],
         }
@@ -104,7 +130,7 @@ impl Character {
                     self.magic_points = self.max_magic_points;
                 }
             }
-            ItemEffect::DamageIncrease(_damage_increase) => {
+            ItemEffect::DamageIncrease(damage_increase) => {
                 // Implement logic to increase character's damage here.
             }
         }
@@ -119,12 +145,6 @@ impl PartialEq for Item {
     }
 }
 
-struct Enemy {
-    name: String,
-    health: u32,
-    damage: u32,
-}
-
 impl Enemy {
     fn attack(&self) -> u32 {
         self.damage
@@ -137,6 +157,32 @@ impl Enemy {
             self.health = 0;
             println!("{} has been defeated!", self.name);
         }
+    }
+}
+
+fn fight(player: &mut Character, enemy: &mut Enemy) {
+    let player_damage = player.attack();
+    let enemy_damage = enemy.attack();
+
+    println!(
+        "{} attacks {} for {} damage!",
+        player.name, enemy.name, player_damage
+    );
+    enemy.take_damage(player_damage);
+
+    if enemy.health == 0 {
+        println!("{} defeats the {}!", player.name, enemy.name);
+        return;
+    }
+
+    println!(
+        "{} attacks {} for {} damage!",
+        enemy.name, player.name, enemy_damage
+    );
+    player.take_damage(enemy_damage);
+
+    if player.health == 0 {
+        println!("{} has been defeated.", player.name);
     }
 }
 
@@ -156,25 +202,17 @@ fn battle(player: &mut Character) {
 
     println!("A battle begins!");
 
-    while !enemies.is_empty() && player.health > 0 {
-        let enemy = &mut enemies[0];
-
+    while let Some(enemy) = enemies.first_mut() {
         println!(
             "{} encounters a {} with {} health!",
             player.name, enemy.name, enemy.health
         );
 
-        let player_damage = player.attack();
-        enemy.take_damage(player_damage);
+        fight(player, enemy);
 
         if enemy.health == 0 {
-            println!("{} defeats the {}!", player.name, enemy.name);
             enemies.remove(0);
-            continue;
         }
-
-        let enemy_damage = enemy.attack();
-        player.take_damage(enemy_damage);
 
         if player.health == 0 {
             println!("{} has been defeated.", player.name);
@@ -208,45 +246,44 @@ fn main() {
             .read_line(&mut choice)
             .expect("Failed to read line");
 
-
-            match choice.trim() {
-                "1" => {
-                    player.cast_spell();
+        match choice.trim() {
+            "1" => {
+                player.cast_spell();
+            }
+            "2" => {
+                println!("Inventory:");
+                for (index, item) in player.inventory.iter().enumerate() {
+                    println!("{}. {}", index + 1, item.name);
                 }
-                "2" => {
-                    println!("Inventory:");
-                    for (index, item) in player.inventory.iter().enumerate() {
-                        println!("{}. {}", index + 1, item.name);
-                    }
-                    println!("Enter the number of the item to use:");
-                    let mut item_choice = String::new();
-                    io::stdin()
-                        .read_line(&mut item_choice)
-                        .expect("Failed to read line");
-                    if let Ok(item_index) = item_choice.trim().parse::<usize>() {
-                        if item_index > 0 && item_index <= player.inventory.len() {
-                            // Clone the item before borrowing the player mutably
-                            let chosen_item = player.inventory[item_index - 1].clone();
-                            player.use_item(&chosen_item);
-                            println!("{} uses {}.", player.name, chosen_item.name);
-                        } else {
-                            println!("Invalid item choice.");
-                        }
+                println!("Enter the number of the item to use:");
+                let mut item_choice = String::new();
+                io::stdin()
+                    .read_line(&mut item_choice)
+                    .expect("Failed to read line");
+                if let Ok(item_index) = item_choice.trim().parse::<usize>() {
+                    if item_index > 0 && item_index <= player.inventory.len() {
+                        // Clone the item before borrowing the player mutably
+                        let chosen_item = player.inventory[item_index - 1].clone();
+                        player.use_item(&chosen_item);
+                        println!("{} uses {}.", player.name, chosen_item.name);
                     } else {
-                        println!("Invalid input.");
+                        println!("Invalid item choice.");
                     }
-                }
-                "3" => {
-                    battle(&mut player);
-                }
-                "4" => {
-                    println!("Goodbye!");
-                    return;
-                }
-                _ => {
-                    println!("Invalid choice.");
+                } else {
+                    println!("Invalid input.");
                 }
             }
+            "3" => {
+                battle(&mut player);
+            }
+            "4" => {
+                println!("Goodbye!");
+                return;
+            }
+            _ => {
+                println!("Invalid choice.");
+            }
+        }
 
         println!(
             "{}'s Health: {}/{}",
@@ -263,9 +300,9 @@ fn main() {
 
 impl Clone for Item {
     fn clone(&self) -> Self {
-        // Implement the clone method by creating a new Item with cloned fields
         Item {
             name: self.name.clone(),
+            rarity: self.rarity.clone(),
             item_type: self.item_type.clone(),
             effect: self.effect.clone(),
         }
